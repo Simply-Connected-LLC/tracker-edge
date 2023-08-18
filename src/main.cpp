@@ -17,6 +17,7 @@
 #include "Particle.h"
 #include "tracker_config.h"
 #include "tracker.h"
+#include "BeaconScanner.h"
 
 SYSTEM_THREAD(ENABLED);
 SYSTEM_MODE(SEMI_AUTOMATIC);
@@ -37,12 +38,30 @@ SerialLogHandler logHandler(115200, LOG_LEVEL_TRACE, {
     { "net.ppp.client", LOG_LEVEL_INFO },
 });
 
+void onCallback(Beacon& beacon, callback_type type) {
+  Log.trace("Address: %s. Type: %s", beacon.getAddress().toString().c_str(), (type == NEW) ? "Entered" : "Left");
+
+  if (type != NEW){
+    String publishData;
+
+    publishData = beacon.getAddress().toString();
+    
+
+    Particle.publish("beaconLeft", publishData, PRIVATE);
+  }
+}
+
 void setup()
 {
     Tracker::instance().init();
+    BLE.on();
+    Scanner.setCallback(onCallback);
+    Scanner.startContinuous();
+
 }
 
 void loop()
 {
     Tracker::instance().loop();
+    Scanner.loop();
 }
