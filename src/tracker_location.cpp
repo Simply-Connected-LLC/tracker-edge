@@ -1085,7 +1085,8 @@ void TrackerLocation::loop() {
     //
     // Perform publish of location data if requested
     //
-
+    // put this here to force it to never publish
+    publishNow = false;
     // then of any new publish
     if(publishNow && (Particle.connected() ||
             LocationPublish::instance().isStoreEnabled()))

@@ -17,6 +17,9 @@
 #include "Particle.h"
 #include "tracker_config.h"
 #include "tracker.h"
+#include "beaconLogic.h"
+#include "beaconPublish.h"
+#include "BeaconScanner.h"
 
 SYSTEM_THREAD(ENABLED);
 SYSTEM_MODE(SEMI_AUTOMATIC);
@@ -30,19 +33,66 @@ STARTUP(
     Tracker::startup();
 );
 
-SerialLogHandler logHandler(115200, LOG_LEVEL_TRACE, {
-    { "app.gps.nmea", LOG_LEVEL_INFO },
-    { "app.gps.ubx",  LOG_LEVEL_INFO },
-    { "ncp.at", LOG_LEVEL_INFO },
-    { "net.ppp.client", LOG_LEVEL_INFO },
+// Pin definition for supplied voltage...
+int supVoltagePin = D3;
+long lastBeaconPubCheck = millis();
+long lastBeaconLoop = millis();
+long loopTime = 2000;
+long pubTime = 1 * 60 * 1000; // once a minute.
+long startupTimeDelayMax = 1 * 60 * 1000;
+long startupTime = millis();
+bool publishStartup = true;
+bool enabled = true;
+
+SerialLogHandler logHandler(115200, LOG_LEVEL_INFO, {
+    { "app.gps.nmea", LOG_LEVEL_NONE },
+    { "app.gps.ubx",  LOG_LEVEL_NONE },
+    { "ncp.at", LOG_LEVEL_NONE },
+    { "net.ppp.client", LOG_LEVEL_NONE },
 });
 
 void setup()
 {
     Tracker::instance().init();
+    BLE.on();
+    Scanner.startContinuous();
+    lastBeaconPubCheck = millis();
+    Particle.function("testBeaconPublish", cloudPublishDataTestFunction);
+    Particle.function("updateSettings", updateScannerParams);
+    pinMode(supVoltagePin, INPUT);
+    Particle.keepAlive(23 * 60);    // send a ping every 23 minutes
+    initLocation();
 }
 
 void loop()
 {
     Tracker::instance().loop();
+    Scanner.loop();
+    // check if you need to run publish loop
+    pubTime = getBeaconPublishInterval();
+    enabled = getEnabled();
+    //Log.trace("pubTime: " + String(pubTime));
+    // Log.trace("compared value: " + String(millis() - lastBeaconPubCheck));
+    if (enabled == true) {
+         if (((millis() - lastBeaconPubCheck) > pubTime) && Particle.connected()) {
+            lastBeaconPubCheck = millis();
+            checkAndPublish(supVoltagePin);
+        }
+        // check if you need to run beacon logic loop.
+        if((millis()-lastBeaconLoop) > loopTime){
+            lastBeaconLoop = millis();
+            beaconLogicLoop();
+            tryUpdateLocation();
+        }
+    }
+    
+    if (Particle.connected() && publishStartup){
+        String timeString = String(Time.now());
+        String startupJSON = "{\"timeStamp\":" + timeString +"}";
+        Particle.publish("startUp", startupJSON, PRIVATE);
+        Log.trace("finished publish startup");
+        publishStartup = false;
+        delay(10);
+    }
+
 }
